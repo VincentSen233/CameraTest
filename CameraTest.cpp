@@ -8,11 +8,15 @@ CameraTest::CameraTest(QWidget *parent)
     data_init();
 }
 CameraTest::~CameraTest()
-{}
+{
+    close_camera();
+    
+}
 void CameraTest::connect_init()
 {
     connect(ui.pushButton_find, &QPushButton::clicked, this, &CameraTest::find);
     connect(ui.pushButton_open, &QPushButton::clicked, this, &CameraTest::open);
+    connect(this, &CameraTest::image_ready, this, &CameraTest::on_image_ready, Qt::QueuedConnection);
 };
 
 void CameraTest::data_init()
@@ -119,7 +123,7 @@ void CameraTest::open()
     if (nRet != MV_OK)
     {
         m_camera.Close();
-        QMessageBox::critical(this, "错误", QString("打开失败 %1").arg(nIndex));
+        QMessageBox::critical(this, "错误", QString("打开失败 %1 %2").arg(nIndex).arg(QString::number(nRet,16)));
         return;
     }
 
@@ -166,7 +170,7 @@ void  CameraTest::enable_controls(bool bIsCameraReady)
     // // 如果 m_bOpenDevice 是 false（设备没打开），返回 bIsCameraReady。意思是：只要相机准备就绪，就可以点打开。
     ui.pushButton_close->setEnabled((m_bOpenDevice&&bIsCameraReady)? true:false);
     ui.pushButton_start->setEnabled((m_bOpenDevice && bIsCameraReady) ? true : false);
-    ui.pushButton_stop->setEnabled((m_bOpenDevice && bIsCameraReady) ? true : false);
+    ui.pushButton_stop->setEnabled(m_bStartGrabbing? true:false);
     ui.pushButton_save->setEnabled(m_bOpenDevice? true:false);
     ui.radioButton_connect->setEnabled(m_bOpenDevice ? true : false);
     ui.radioButton_trigger->setEnabled(m_bOpenDevice ? true : false);
@@ -176,11 +180,9 @@ void  CameraTest::enable_controls(bool bIsCameraReady)
     ui.lineEdit_gain->setEnabled(m_bOpenDevice ? true : false);
     ui.lineEdit_frame->setEnabled(m_bOpenDevice ? true : false);
 }
-
-
-void CameraTest::on_pushButton_close_clicked()
+void CameraTest::close_camera()
 {
-    int nRet=m_camera.Close();
+    int nRet = m_camera.Close();
     //这里是真实的相机才设置
     //if (nRet != MV_OK)
     //     QMessageBox::critical(this, "错误", QString("关闭失败 %1").arg(QString::number(nRet, 16))); //对错误值进行解析
@@ -190,9 +192,142 @@ void CameraTest::on_pushButton_close_clicked()
     enable_controls(true);
     QMessageBox::information(this, "提示", "查找设备关闭");
 }
+
+void CameraTest::on_pushButton_close_clicked()
+{
+    close_camera();
+}
 void CameraTest::on_pushButton_save_clicked()
 {
+    if (!m_image.isNull())
+    {
+        m_image.save("D:/test.bmp");
+    }
     QMessageBox::warning(this, "提示", "保存成功");
+}
+
+void CameraTest::on_pushButton_start_clicked()
+{
+    QMessageBox::warning(this, "提示", "开始采集");
+    //判断这个设备有无启动
+    if (m_bOpenDevice == false|| m_bStartGrabbing==true)
+    {
+        return;
+    }
+    //开一个线程去抓图
+    m_pGrabThread = QThread::create([this]() {grapThreadProcess(); });
+    //判断指针是否为空
+    if (!m_pGrabThread)
+    {
+        m_bThreadState = false;
+        QMessageBox::critical(this, "错误", QString("创建线程失败")); //对错误值进行解析
+        return;
+    }
+
+    //线程启动
+    m_bThreadState = true;
+    m_pGrabThread->setObjectName("GrabThread");
+
+    m_pGrabThread->start();
+    //相机抓取的int类型的返回值
+    int nRet=m_camera.StartGrabbing(); 
+    if (nRet != MV_OK)
+    {
+         QMessageBox::critical(this, "错误", QString("抓图失败 %1").arg(QString::number(nRet, 16))); //对错误值进行解析
+         return;
+    }
+   //抓取成功的话 搞一个状态
+    m_bStartGrabbing = true;
+   // grapThreadProcess(); //抓取成功 启动线程
+}
+void CameraTest::on_pushButton_stop_clicked()
+{
+    QMessageBox::warning(this, "提示", "停止采集");
+    //判断这个设备有无启动
+    if (m_bOpenDevice == false|| m_bStartGrabbing==false)
+    {
+        return;
+    }
+    m_bThreadState = false;
+    if (m_pGrabThread) //取图的线程
+    {
+        m_pGrabThread->wait(); //等待线程结束
+        delete m_pGrabThread;
+        m_pGrabThread = nullptr;
+    }
+
+
+    //相机抓取的int类型的返回值
+    int nRet = m_camera.StopGrabbing();
+    if (nRet != MV_OK)
+    {
+        QMessageBox::critical(this, "错误", QString("停止取图失败 %1").arg(QString::number(nRet, 16))); //对错误值进行解析
+        return;
+    }
+    //停止抓图 给线程状态false
+    m_bStartGrabbing = false;
+}
+
+void CameraTest::grapThreadProcess() //循环抓取图像的函数 利用到线程的概念
+{
+    while(m_bThreadState)
+    {
+        //先取一张图片
+        //首先判断是否进入抓图状态
+        if (!m_bStartGrabbing)
+        {
+            QThread::msleep(10);
+            continue;
+        }
+        //取得一帧的图像
+        // ch:主动获取一帧图像数据 | en:Get one frame initiatively
+        //int CMvCamera::GetImageBuffer(MV_FRAME_OUT * pFrame, int nMsec)
+        MV_FRAME_OUT strImageframeInfo = { 0 };
+        int nRet = m_camera.GetImageBuffer(&strImageframeInfo, 1000); //如果有图像就返回MV_OK 没有就等待1秒
+        if (nRet == MV_OK)
+        {
+            //解析这个图片 获取图片的宽高
+            int w = strImageframeInfo.stFrameInfo.nWidth;
+            int h = strImageframeInfo.stFrameInfo.nHeight;
+
+            //用变量接受图片数据
+            QImage img;
+            if (strImageframeInfo.stFrameInfo.enPixelType == PixelType_Gvsp_Mono8) //图片类型解析
+            {
+                img = QImage(strImageframeInfo.pBufAddr, w, h, w, QImage::Format_Grayscale8).copy();
+            }
+            else if (strImageframeInfo.stFrameInfo.enPixelType == PixelType_Gvsp_RGB8_Packed) //彩色
+            {
+                img = QImage(strImageframeInfo.pBufAddr, w, h, w * 3, QImage::Format_RGB888).copy();
+            }
+            else
+            {
+
+            }
+            if (!img.isNull())
+            {
+                //刷新页面
+                emit image_ready(img);
+
+            }
+            m_camera.FreeImageBuffer(&strImageframeInfo);
+        }
+        else
+        {
+            QString str= QString("停止取图失败 %1").arg(QString::number(nRet, 16)); //对错误值进行解析
+        }
+
+
+    }
+}
+
+
+void CameraTest::on_image_ready(const QImage & img)
+{
+    m_image = img;
+    QPixmap pixmap=QPixmap::fromImage(m_image);
+    ui.label_display->setPixmap(pixmap.scaled(ui.label_display->size(),Qt::KeepAspectRatio,Qt::SmoothTransformation));
+
 }
 void CameraTest::on_lineEdit_exposure_textChanged(const QString& arg1)
 {
