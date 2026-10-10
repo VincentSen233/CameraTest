@@ -169,8 +169,8 @@ void  CameraTest::enable_controls(bool bIsCameraReady)
     //如果 m_bOpenDevice 是 true（设备已经打开了），那么 ? 前面的条件成立，返回 false。意思是：设备一旦打开，打开按钮就禁用。
     // // 如果 m_bOpenDevice 是 false（设备没打开），返回 bIsCameraReady。意思是：只要相机准备就绪，就可以点打开。
     ui.pushButton_close->setEnabled((m_bOpenDevice&&bIsCameraReady)? true:false);
-    ui.pushButton_start->setEnabled((m_bOpenDevice && bIsCameraReady) ? true : false);
-    ui.pushButton_stop->setEnabled(m_bStartGrabbing? true:false);
+    ui.pushButton_start->setEnabled((m_bStartGrabbing && bIsCameraReady) ? false : m_bOpenDevice);
+    ui.pushButton_stop->setEnabled(m_bStartGrabbing ? true:false);
     ui.pushButton_save->setEnabled(m_bOpenDevice? true:false);
     ui.radioButton_connect->setEnabled(m_bOpenDevice ? true : false);
     ui.radioButton_trigger->setEnabled(m_bOpenDevice ? true : false);
@@ -238,6 +238,7 @@ void CameraTest::on_pushButton_start_clicked()
     }
    //抓取成功的话 搞一个状态
     m_bStartGrabbing = true;
+    enable_controls(true);
    // grapThreadProcess(); //抓取成功 启动线程
 }
 void CameraTest::on_pushButton_stop_clicked()
@@ -266,6 +267,7 @@ void CameraTest::on_pushButton_stop_clicked()
     }
     //停止抓图 给线程状态false
     m_bStartGrabbing = false;
+    enable_controls(true);
 }
 
 void CameraTest::grapThreadProcess() //循环抓取图像的函数 利用到线程的概念
