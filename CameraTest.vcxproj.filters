@@ -43,9 +43,15 @@
     <ClCompile Include="MvCamera.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="HalconEngine.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="MvCamera.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="HalconEngine.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

@@ -1,5 +1,6 @@
 ﻿#include "CameraTest.h"
 #include <QMessageBox>
+#include <QFileDialog>
 CameraTest::CameraTest(QWidget *parent)
     : QMainWindow(parent)
 {
@@ -17,6 +18,10 @@ void CameraTest::connect_init()
     connect(ui.pushButton_find, &QPushButton::clicked, this, &CameraTest::find);
     connect(ui.pushButton_open, &QPushButton::clicked, this, &CameraTest::open);
     connect(this, &CameraTest::image_ready, this, &CameraTest::on_image_ready, Qt::QueuedConnection);
+    // Halcon 离线处理三个按钮
+    connect(ui.pushButton_openimage,  &QPushButton::clicked, this, &CameraTest::on_pushButton_openimage_clicked);
+    connect(ui.pushButton_loadscript, &QPushButton::clicked, this, &CameraTest::on_pushButton_loadscript_clicked);
+    connect(ui.pushButton_run,        &QPushButton::clicked, this, &CameraTest::on_pushButton_run_clicked);
 };
 
 void CameraTest::data_init()
@@ -452,4 +457,94 @@ int CameraTest::get_frame_rate()
     m_frame = stFloatValue.fCurValue;
     ui.lineEdit_frame->setText(QString::number(m_frame));
     return MV_OK;
+}
+
+
+// ======================================================================
+// Halcon 离线处理
+//   这三个函数都不会自动加载任何东西：
+//   图片要手动选，脚本也要手动选，这样程序启动时不依赖任何算法文件。
+// ======================================================================
+
+// 脚本里要调用的过程名。改成你自己脚本里定义的那个名字
+static const char* DEFAULT_PROC_NAME = "do_inspect";
+
+void CameraTest::on_pushButton_openimage_clicked()
+{
+    QString path = QFileDialog::getOpenFileName(
+                this,
+                "选一张图片",
+                "D:/",
+                "图片文件 (*.png *.bmp *.tif *.tiff *.jpg *.jpeg);;所有文件 (*.*)");
+    if (path.isEmpty())          // 用户点了取消
+        return;
+
+    QString err;
+    if (!m_halcon.loadImage(path, &err))
+    {
+        QMessageBox::critical(this, "错误", QString("读图失败：\n%1").arg(err));
+        return;
+    }
+
+    // 显示到界面上，顺便存进 m_image，原来的"保存bmp"按钮也能用上
+    QImage qimg = HalconEngine::toQImage(m_halcon.image());
+    m_image = qimg;
+    ui.label_display->setPixmap(
+                QPixmap::fromImage(qimg).scaled(ui.label_display->size(),
+                                                Qt::KeepAspectRatio,
+                                                Qt::SmoothTransformation));
+
+    ui.statusBar->showMessage(QString("已载入图片：%1").arg(path));
+}
+
+void CameraTest::on_pushButton_loadscript_clicked()
+{
+    QString path = QFileDialog::getOpenFileName(
+                this,
+                "选择 Halcon 脚本",
+                "D:/WorkSpace/QT/CameraTest/hdev",
+                "Halcon 脚本 (*.hdpl *.hdev *.hdvp);;所有文件 (*.*)");
+    if (path.isEmpty())
+        return;
+
+    QString err;
+    if (!m_halcon.loadScript(path, DEFAULT_PROC_NAME, &err))
+    {
+        QMessageBox::critical(this, "错误", QString("加载脚本失败：\n%1").arg(err));
+        return;
+    }
+
+    ui.statusBar->showMessage(
+                QString("已加载脚本：%1（过程：%2）")
+                    .arg(path)
+                    .arg(m_halcon.procName()));
+}
+
+void CameraTest::on_pushButton_run_clicked()
+{
+    HalconCpp::HRegion region;
+    bool   isOk  = false;
+    double value = 0.0;
+    QString err;
+
+    if (!m_halcon.run(&region, &isOk, &value, &err))
+    {
+        QMessageBox::critical(this, "错误", QString("算法执行失败：\n%1").arg(err));
+        return;
+    }
+
+    // 把找到的区域涂到图上，肉眼好确认
+    // 灰度图只能涂灰度值，这里涂成纯白 255（不能写 "red"）
+    HalconCpp::HImage show = m_halcon.image().CopyImage();
+    show.OverpaintRegion(region, 255, "fill");
+
+    ui.label_display->setPixmap(
+                QPixmap::fromImage(HalconEngine::toQImage(show))
+                    .scaled(ui.label_display->size(),
+                            Qt::KeepAspectRatio,
+                            Qt::SmoothTransformation));
+
+    ui.statusBar->showMessage(QString("判定：%1    面积：%2")
+                                  .arg(isOk ? "OK" : "NG")
+                                  .arg(QString::number(value, 'f', 1)));
 }

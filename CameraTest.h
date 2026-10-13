@@ -3,6 +3,7 @@
 #include "ui_CameraTest.h"
 #include <QtWidgets/QMainWindow>
 #include "MvCamera.h"
+#include "HalconEngine.h"   // Halcon 脚本引擎（离线图片 + hdpl/hdev）
 #include<QThread>
 #define CONNNECT_MODE 0
 #define TRIGGER_MODE 1
@@ -49,6 +50,8 @@ public:
     QThread * m_pGrabThread; //取图的线程
     bool m_bThreadState;                  //控制线程的状态
     QImage m_image;
+    // Halcon 引擎：不会自动加载任何脚本，必须手动选文件才载
+    HalconEngine m_halcon;
     //定义一下信号
 signals:
     void image_ready(QImage img);
@@ -66,6 +69,11 @@ public slots:
     void on_radioButton_connect_clicked();
     void on_radioButton_trigger_clicked();
     void on_image_ready(const QImage& img);
+
+    // Halcon 离线处理（图片和脚本都要手动选，程序启动时不加载任何算法）
+    void on_pushButton_openimage_clicked();    // 打开离线图片
+    void on_pushButton_loadscript_clicked();   // 加载 .hdpl / .hdev
+    void on_pushButton_run_clicked();          // 执行算法
 
 
 private:
